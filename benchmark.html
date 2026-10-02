@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>corral — TS vs Go vs Rust benchmark</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --ts: #f7df1e;
+    --go: #00add8;
+    --rust: #dea584;
+    --good: #3fb950;
+    --grid: #2a3140;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 22px 80px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.4px; }
+  h2 { font-size: 19px; margin: 44px 0 14px; border-left: 3px solid var(--rust); padding-left: 10px; }
+  .sub { color: var(--muted); margin: 0 0 8px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  a { color: var(--go); }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 16px 14px; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .card .big { font-size: 26px; font-weight: 700; margin: 8px 0 2px; }
+  .card .small { color: var(--muted); font-size: 13px; }
+  .win { color: var(--good); font-size: 12px; font-weight: 600; }
+  .chart { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin: 12px 0; }
+  .chart h3 { margin: 0 0 2px; font-size: 15px; }
+  .chart .note { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+  .row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; margin: 8px 0; }
+  .row .label { font-size: 13px; color: var(--muted); }
+  .track { position: relative; height: 26px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
+  .bar { height: 100%; border-radius: 6px 0 0 6px; transition: width .8s cubic-bezier(.2,.8,.2,1); }
+  .bar span { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } .cards { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr:hover td { background: #12171f; }
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+  .rustpill { color: var(--rust); border-color: #6b4a3a; }
+  .gopill { color: var(--go); border-color: #1d5b6b; }
+  .tspill { color: var(--ts); border-color: #6b6320; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 34px; }
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 2px 0 10px; font-size: 13px; }
+  .legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  svg .axis { stroke: var(--grid); stroke-width: 1; }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; stroke-dasharray: 3 4; }
+  .lat-row { margin: 10px 0; }
+  .lat-name { font-size: 13px; margin-bottom: 4px; }
+  .lat-seg { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .lat-seg .k { width: 34px; color: var(--muted); font-size: 12px; }
+  .lat-seg .t { position: relative; flex: 1; height: 16px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .lat-seg .b { height: 100%; border-radius: 4px; }
+  .lat-seg .v { width: 64px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .cost { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .cost-h { font-weight: 600; font-size: 13.5px; margin-bottom: 6px; }
+  .cost ul { margin: 6px 0; padding-left: 18px; color: var(--text); font-size: 13px; }
+  .cost li { margin: 2px 0; }
+  table.matrix td, table.matrix th { text-align: center; }
+  table.matrix td:first-child, table.matrix th:first-child { text-align: left; }
+  .ok { color: var(--good); font-weight: 700; }
+  .adv-name { font-size: 13px; margin: 12px 0 4px; color: var(--text); }
+  #futures { margin: 4px 0 0; padding-left: 18px; }
+  #futures li { margin: 6px 0; font-size: 13.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>corral — TS/Bun vs Go vs Rust</h1>
+  <p class="sub">Head-to-head benchmark of three implementations of the same CLI + daemon
+  (identical HTTP routes, JSONL store, firewall rules, dashboard).</p>
+  <p class="meta">Machine: Apple Silicon (arm64), macOS · 16 GB RAM · 10 cores ·
+  same client, same handlers, same machine · single-run medians.</p>
+
+  <div class="cards" id="cards"></div>
+
+  <h2>Core metrics</h2>
+  <div id="charts"></div>
+
+  <h2>Deep dive: scalability, latency &amp; memory over time</h2>
+  <div class="grid2">
+    <div class="chart">
+      <h3>Normalised scorecard</h3>
+      <p class="note">0–100, higher is better · each axis normalised across the three
+      (log scale for size/memory/startup; ratio for throughput).</p>
+      <div id="radar"></div>
+    </div>
+    <div class="chart">
+      <h3>Latency percentiles — <code>/api/events?limit=200</code> @ conc 50</h3>
+      <p class="note">per-request latency, lower is better · p50 / p90 / p99 (ms)</p>
+      <div id="latency"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="chart">
+      <h3>Throughput vs concurrency — <code>/health</code></h3>
+      <p class="note">req/s, higher is better · 20k requests per point</p>
+      <div id="lineHealth"></div>
+    </div>
+    <div class="chart">
+      <h3>Throughput vs concurrency — <code>/api/events?limit=200</code></h3>
+      <p class="note">req/s, higher is better · 3k requests per point</p>
+      <div id="lineEvents"></div>
+    </div>
+  </div>
+
+  <div class="chart">
+    <h3>Memory over time under sustained load — <code>/api/events?limit=200</code> @ conc 50</h3>
+    <p class="note">resident set (RSS, MB) sampled every 100 ms · note: these are
+    back-to-back heavy runs, so absolute levels are higher than the single-run
+    figure in the table above; ranking is the takeaway.</p>
+    <div id="memline"></div>
+  </div>
+
+  <div class="chart">
+    <h3>Peak RSS under sustained load (MB)</h3>
+    <p class="note">peak resident set during the conc-50 <code>/api/events</code> run · lower is better</p>
+    <div id="mempeak"></div>
+  </div>
+
+  <div class="chart">
+    <h3>Why two throughputs — 42k req/s and 3k req/s?</h3>
+    <p class="note">Same server, two different routes. <code>/health</code> does almost nothing;
+    <code>/api/events?limit=200</code> is the daemon's real job. The gap is simply work-per-request.</p>
+    <div class="grid2">
+      <div class="cost">
+        <div class="cost-h"><code>GET /health</code> — ~42,000 req/s <span class="meta">(≈23 µs)</span></div>
+        <ul>
+          <li>match the route</li>
+          <li>return an 11-byte literal <code>{"ok":true}</code></li>
+        </ul>
+        <div class="meta">No disk, no parse, no allocation → bound by the loopback client, so all three tie.</div>
+      </div>
+      <div class="cost">
+        <div class="cost-h"><code>GET /api/events?limit=200</code> — ~3,500 req/s <span class="meta">(≈289 µs, Rust)</span></div>
+        <ul>
+          <li>open the log + seek to the tail</li>
+          <li>read up to 64 KB</li>
+          <li>parse, validate and redact 200 JSON records</li>
+          <li>re-serialize 200 records to JSON</li>
+          <li>write a ~100 KB response</li>
+        </ul>
+        <div class="meta">~18× the work per request → roughly 12× lower throughput.</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Does it work? Detection &amp; feature parity</h2>
+  <div class="grid2">
+    <div class="chart">
+      <h3>OpenCode agents detected (live scan)</h3>
+      <p class="note">same machine, same <code>ps</code> scan, all three daemons</p>
+      <div id="detect"></div>
+    </div>
+    <div class="chart">
+      <h3>Feature parity</h3>
+      <p class="note">identical behaviour — Go/Rust are drop-in for TS</p>
+      <div id="parity"></div>
+    </div>
+  </div>
+
+  <h2>Rust advantage profile &amp; where TS would struggle</h2>
+  <div class="chart">
+    <h3>Architectural fit by capability</h3>
+    <p class="note">qualitative, architecture-based (not benchmarked) · 0–5, higher is better</p>
+    <div id="advantage"></div>
+  </div>
+  <div class="chart">
+    <h3>Features worth adding to Rust — that would be worst in TS</h3>
+    <p class="note">these capitalise on Rust's strengths: native CPU, no GC, no event-loop stalls</p>
+    <ul id="futures"></ul>
+  </div>
+
+  <h2>Full comparison</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>Metric</th><th>TS / Bun</th><th>Go</th><th>Rust</th><th>Winner</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Deploy size (end-to-end)</td><td class="num">58.7 MiB</td><td class="num">6.98 MiB <span class="meta">(stripped)</span></td><td class="num">0.56 MiB</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>App binary / bundle only</td><td class="num">72 KB</td><td class="num">10.26 MiB <span class="meta">(raw)</span></td><td class="num">575 KB</td><td><span class="pill tspill">TS</span> <span class="meta">(but needs 59 MB runtime)</span></td></tr>
+        <tr><td>Runtime dependency</td><td class="num">Bun 59 MB</td><td class="num">none</td><td class="num">none</td><td><span class="pill gopill">Go</span>/<span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Idle memory (RSS)</td><td class="num">44 MB</td><td class="num">13 MB</td><td class="num">3.3 MB</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Memory after JSON load</td><td class="num">191 MB</td><td class="num">49 MB</td><td class="num">18 MB</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Peak RSS under sustained load</td><td class="num">321 MB</td><td class="num">73 MB</td><td class="num">24 MB</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Cold start to healthy</td><td class="num">47 ms</td><td class="num">12.5 ms</td><td class="num">7 ms</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Latency p50 / p90 / p99 (<code>/api/events</code>, conc 50)</td><td class="num">32.2 / 43.1 / 53.2 ms</td><td class="num">23.0 / 48.2 / 76.4 ms</td><td class="num">13.6 / 19.0 / 24.7 ms</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Peak <code>/api/events</code> throughput</td><td class="num">1,553 req/s</td><td class="num">2,301 req/s</td><td class="num">4,428 req/s</td><td><span class="pill rustpill">Rust</span></td></tr>
+        <tr><td>Peak <code>/health</code> throughput</td><td class="num">43,282 req/s</td><td class="num">42,013 req/s</td><td class="num">42,109 req/s</td><td class="meta">tie (client-bound)</td></tr>
+        <tr><td>Source size (lines)</td><td class="num">2,588</td><td class="num">2,179</td><td class="num">2,272</td><td><span class="pill gopill">Go</span></td></tr>
+        <tr><td>Third-party deps</td><td class="num">0 (runtime: Bun)</td><td class="num">0 (stdlib)</td><td class="num">serde, serde_json, libc</td><td><span class="pill gopill">Go</span> <span class="meta">(stdlib only)</span></td></tr>
+        <tr><td>Concurrency model</td><td class="num">single event loop</td><td class="num">goroutine per conn</td><td class="num">thread per conn</td><td class="meta">workload-dependent</td></tr>
+        <tr><td>Binary type</td><td class="num">JS bundle</td><td class="num">static</td><td class="num">dynamic (libc)</td><td class="meta">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Reading the results</h2>
+  <ul>
+    <li><b>Rust wins</b> on deploy size, memory (idle, single-run and sustained),
+    startup, latency, and the daemon's real workload — the JSON + tail path
+    (<code>/api/events</code>). Roughly 2.5–3x Bun and ~2x Go there, and far more
+    stable under concurrency.</li>
+    <li><b>Go</b> is the pragmatic middle: a 7–10 MiB static single binary, 13 MB idle,
+    stdlib-only, clean and simple. Its tail path scales less gracefully (RSS climbed
+    to ~73 MB under sustained load).</li>
+    <li><b>TS/Bun</b> is last on size and memory once the 59 MB Bun runtime is counted,
+    and degrades under concurrency: constant memory growth and much higher tail
+    latency. On trivial <code>/health</code> all three tie because the loopback client
+    is the bottleneck.</li>
+    <li>Deploy size for TS is <b>app + runtime</b>; the app bundle alone is tiny (72 KB)
+    but unrunnable without Bun installed.</li>
+  </ul>
+
+  <h2>Methodology</h2>
+  <ul>
+    <li>All three servers expose the same routes and were tested on spare loopback ports
+    so the live firewall's self-protection didn't interfere.</li>
+    <li>Throughput/latency: Go client opening a fresh TCP connection per request
+    (<code>Connection: close</code>); concurrency swept 1 → 10 → 50 → 200;
+    20,000 reqs for <code>/health</code>, 3,000 for <code>/api/events?limit=200</code>.</li>
+    <li>Memory: RSS via <code>ps</code>, sampled every 100 ms during the run; idle after
+    start; "after JSON load" ~15 s after a single events run.</li>
+    <li>Startup: spawn daemon, poll <code>/health</code> until HTTP 200; warm median of 3
+    runs (cold first run excluded).</li>
+    <li>Radar normalisation: log scale for size / memory / startup / LOC, ratio-to-best
+    for throughput.</li>
+    <li>Builds: Rust <code>opt-level=z, lto, codegen-units=1, strip</code>; Go
+    <code>-trimpath -ldflags "-s -w"</code>; Bun <code>bun build --minify</code>.</li>
+    <li>LOC counted from tracked sources per branch; Rust from the working tree.</li>
+  </ul>
+
+  <footer>
+    Generated for the <code>Rust</code> vs <code>Golang</code> vs <code>main</code>
+    branches of corral. Numbers are from this machine and should be treated as
+    relative, not absolute.
+  </footer>
+</div>
+
+<script>
+const langs = [
+  { name: "TS / Bun", key: "TS",   color: "#f7df1e" },
+  { name: "Go",       key: "Go",   color: "#00add8" },
+  { name: "Rust",     key: "Rust", color: "#dea584" },
+];
+
+const metrics = [
+  { title: "Deploy footprint", unit: "MiB", note: "end-to-end on disk; TS includes the Bun runtime; Go stripped", values: [58.7, 6.98, 0.56], lowerBetter: true, fmt: v => v.toFixed(2) + " MiB" },
+  { title: "Idle memory (RSS)", unit: "MB", note: "resident set after start, no traffic", values: [44, 13, 3.3], lowerBetter: true, fmt: v => v.toFixed(1) + " MB" },
+  { title: "Memory after JSON load", unit: "MB", note: "RSS ~15s after a single /api/events run", values: [191, 49, 18], lowerBetter: true, fmt: v => v.toFixed(0) + " MB" },
+  { title: "Cold start to healthy", unit: "ms", note: "spawn → first HTTP 200 /health (warm median)", values: [47, 12.5, 7], lowerBetter: true, fmt: v => v.toFixed(1) + " ms" },
+  { title: "Throughput /api/events?limit=200", unit: "req/s", note: "JSON parse + tail read + re-serialize — the real workload (peak across conc)", values: [1553, 2301, 4428], lowerBetter: false, fmt: v => v.toLocaleString() + " req/s" },
+  { title: "Throughput /health", unit: "req/s", note: "trivial handler — client-bound, all three tie (peak across conc)", values: [43282, 42013, 42109], lowerBetter: false, fmt: v => v.toLocaleString() + " req/s" },
+  { title: "Source size", unit: "lines", note: "implementation only (plugin excluded)", values: [2588, 2179, 2272], lowerBetter: true, fmt: v => v.toLocaleString() + " lines" },
+];
+
+const deep = {
+  conc: [1, 10, 50, 200],
+  health: {
+    TS:   [15247, 43282, 21251, 43230],
+    Go:   [16102, 39643, 34992, 42013],
+    Rust: [16544, 38347, 42109, 35767],
+  },
+  events: {
+    TS:   [1106, 1553, 1533, 1541],
+    Go:   [428, 1474, 1808, 2301],
+    Rust: [749, 3465, 3553, 4428],
+  },
+  latencyEventsC50: { // p50,p90,p99 in ms
+    TS:   [32.2, 43.1, 53.2],
+    Go:   [23.0, 48.2, 76.4],
+    Rust: [13.6, 19.0, 24.7],
+  },
+  memTrace: { // [ms, KB] during /api/events @ conc 50
+    TS: [[0,194976],[102,248160],[207,258352],[310,267008],[412,269712],[514,271792],[617,275904],[719,280336],[822,280432],[925,309360],[1028,314336],[1130,324240],[1234,324240],[1336,324432],[1438,324432],[1541,324432],[1643,324432],[1745,324432],[1848,328528],[1950,328528]],
+    Go: [[0,39904],[102,68480],[205,70288],[309,70304],[414,75120],[516,75136],[620,75152],[723,75168],[825,75168],[929,75184],[1032,75200],[1134,75200],[1238,75232],[1342,75232],[1445,75232],[1548,75232],[1651,75232]],
+    Rust: [[0,17072],[111,22960],[244,23648],[365,23152],[469,23296],[582,24464],[697,24480],[805,24608]],
+  },
+  peakMem: { TS: 320.8, Go: 73.5, Rust: 24.0 },
+};
+
+function renderCards() {
+  const el = document.getElementById("cards");
+  const defs = [
+    { i: 0, big: "58.7 MiB", small: "44 MB idle · 42.7k req/s · 1.4k events/s" },
+    { i: 1, big: "6.98 MiB", small: "13 MB idle · 43.5k req/s · 1.7k events/s" },
+    { i: 2, big: "0.56 MiB", small: "3.3 MB idle · 42.4k req/s · 3.5k events/s", win: true },
+  ];
+  el.innerHTML = defs.map(d => `
+    <div class="card">
+      <h3><span class="dot" style="background:${langs[d.i].color}"></span>${langs[d.i].name}
+        ${d.win ? '<span class="win">WINNER</span>' : ''}</h3>
+      <div class="big">${d.big}</div>
+      <div class="small">${d.small}</div>
+    </div>`).join("");
+}
+
+function renderCharts() {
+  const host = document.getElementById("charts");
+  host.innerHTML = metrics.map(m => {
+    const max = Math.max(...m.values) || 1;
+    const rows = m.values.map((v, i) => {
+      const pct = Math.max(1.2, (v / max) * 100);
+      return `
+        <div class="row">
+          <div class="label">${langs[i].name}</div>
+          <div class="track">
+            <div class="bar" style="width:${pct}%;background:${langs[i].color}"><span>${m.fmt(v)}</span></div>
+          </div>
+        </div>`;
+    }).join("");
+    return `
+      <div class="chart">
+        <h3>${m.title} <span class="meta">(${m.unit})</span></h3>
+        <p class="note">${m.note} · ${m.lowerBetter ? "lower is better" : "higher is better"}</p>
+        ${rows}
+      </div>`;
+  }).join("");
+}
+
+// ---------- radar ----------
+function scoreAxis(axis, i) {
+  if (axis.kind === "ratio") {
+    const max = Math.max(...axis.values);
+    return 100 * (axis.values[i] / max);
+  }
+  const L = axis.values.map(v => Math.log10(v));
+  const mx = Math.max(...L);
+  const mn = Math.min(...L);
+  if (mx === mn) return 100;
+  return 100 * ((mx - L[i]) / (mx - mn));
+}
+
+function renderRadar() {
+  const axes = [
+    { label: "Deploy size",    values: [58.7, 6.98, 0.56], kind: "log" },
+    { label: "Idle memory",    values: [44, 13, 3.3],      kind: "log" },
+    { label: "Load memory",    values: [191, 49, 18],      kind: "log" },
+    { label: "Startup",        values: [47, 12.5, 7],      kind: "log" },
+    { label: "JSON throughput",values: [1553, 2301, 4428], kind: "ratio" },
+    { label: "Source size",    values: [2588, 2179, 2272], kind: "log" },
+  ];
+  const W = 420, H = 350, cx = 210, cy = 178, R = 128;
+  const n = axes.length;
+  const ang = k => (-Math.PI / 2) + k * (2 * Math.PI / n);
+  const pt = (k, r) => [cx + Math.cos(ang(k)) * r, cy + Math.sin(ang(k)) * r];
+
+  let rings = "";
+  for (const f of [0.25, 0.5, 0.75, 1]) {
+    const pts = [];
+    for (let k = 0; k < n; k++) { const [x, y] = pt(k, R * f); pts.push(`${x.toFixed(1)},${y.toFixed(1)}`); }
+    rings += `<polygon points="${pts.join(" ")}" fill="none" class="gridline" />`;
+  }
+  let spokes = "";
+  for (let k = 0; k < n; k++) {
+    const [x, y] = pt(k, R);
+    spokes += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" class="axis" />`;
+    const [lx, ly] = pt(k, R + 22);
+    const anchor = Math.abs(lx - cx) < 6 ? "middle" : (lx > cx ? "start" : "end");
+    spokes += `<text x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="${anchor}">${axes[k].label}</text>`;
+  }
+  let polys = "";
+  langs.forEach((l, i) => {
+    const pts = axes.map((a, k) => {
+      const s = scoreAxis(a, i) / 100;
+      const [x, y] = pt(k, R * s);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    polys += `<polygon points="${pts.join(" ")}" fill="${l.color}22" stroke="${l.color}" stroke-width="2" />`;
+  });
+  document.getElementById("radar").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="radar scorecard">
+       ${rings}${spokes}${polys}
+     </svg>
+     <div class="legend">${langs.map(l => `<span><i style="background:${l.color}"></i>${l.name}</span>`).join("")}</div>`;
+}
+
+// ---------- latency ----------
+function renderLatency() {
+  const host = document.getElementById("latency");
+  const max = 80; // ms scale
+  const labels = ["p50", "p90", "p99"];
+  host.innerHTML = langs.map((l, i) => {
+    const vals = deep.latencyEventsC50[l.key];
+    const segs = vals.map((v, j) => `
+      <div class="lat-seg">
+        <div class="k">${labels[j]}</div>
+        <div class="t"><div class="b" style="width:${Math.min(100, v / max * 100)}%;background:${l.color};opacity:${1 - j * 0.22}"></div></div>
+        <div class="v">${v.toFixed(1)} ms</div>
+      </div>`).join("");
+    return `<div class="lat-row"><div class="lat-name" style="color:${l.color}">${l.name}</div>${segs}</div>`;
+  }).join("");
+}
+
+// ---------- generic x/y line ----------
+function renderXY(containerId, series, xLabels, yMax, yUnit) {
+  const W = 520, H = 250, padL = 52, padR = 12, padT = 12, padB = 30;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const n = xLabels.length;
+  const xAt = i => padL + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const yAt = v => padT + ih - (v / yMax) * ih;
+
+  let grid = "";
+  for (let g = 0; g <= 4; g++) {
+    const v = (yMax / 4) * g;
+    const y = yAt(v);
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="gridline" />`;
+    grid += `<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${v >= 1000 ? (v / 1000) + "k" : v.toFixed(0)}</text>`;
+  }
+  xLabels.forEach((lb, i) => {
+    grid += `<text x="${xAt(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${lb}</text>`;
+  });
+  grid += `<text x="${padL - 6}" y="${padT + 2}" text-anchor="end" class="meta">${yUnit}</text>`;
+
+  const lines = series.map(s => {
+    const pts = s.data.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+    const dots = s.data.map((v, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="2.6" fill="${s.color}" />`).join("");
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.5" />${dots}`;
+  }).join("");
+
+  document.getElementById(containerId).innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">
+       ${grid}${lines}
+     </svg>
+     <div class="legend">${series.map(s => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join("")}</div>`;
+}
+
+function renderThroughput() {
+  const xl = deep.conc.map(String);
+  const toSeries = obj => langs.map(l => ({ name: l.name, color: l.color, data: obj[l.key] }));
+  renderXY("lineHealth", toSeries(deep.health), xl, 48000, "req/s");
+  renderXY("lineEvents", toSeries(deep.events), xl, 4800, "req/s");
+}
+
+// ---------- memory over time ----------
+function renderMemLine() {
+  const W = 1040, H = 280, padL = 56, padR = 14, padT = 12, padB = 32;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const xMax = 2000, yMax = 340; // ms, MB
+  const xAt = v => padL + (v / xMax) * iw;
+  const yAt = v => padT + ih - (v / yMax) * ih;
+
+  let grid = "";
+  for (let g = 0; g <= 4; g++) {
+    const v = (yMax / 4) * g;
+    const y = yAt(v);
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="gridline" />`;
+    grid += `<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+  for (let t = 0; t <= xMax; t += 500) {
+    grid += `<text x="${xAt(t).toFixed(1)}" y="${H - 8}" text-anchor="middle">${t}ms</text>`;
+  }
+  grid += `<text x="${padL - 6}" y="${padT + 2}" text-anchor="end" class="meta">MB</text>`;
+
+  const lines = langs.map(l => {
+    const trace = deep.memTrace[l.key];
+    const pts = trace.map(([ms, kb]) => `${xAt(ms).toFixed(1)},${yAt(kb / 1024).toFixed(1)}`).join(" ");
+    return `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="2.5" />`;
+  }).join("");
+
+  document.getElementById("memline").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">
+       ${grid}${lines}
+     </svg>
+     <div class="legend">${langs.map(l => `<span><i style="background:${l.color}"></i>${l.name}</span>`).join("")}</div>`;
+}
+
+function renderPeakBars() {
+  const host = document.getElementById("mempeak");
+  const vals = [deep.peakMem.TS, deep.peakMem.Go, deep.peakMem.Rust];
+  const max = Math.max(...vals);
+  host.innerHTML = vals.map((v, i) => `
+    <div class="row">
+      <div class="label">${langs[i].name}</div>
+      <div class="track">
+        <div class="bar" style="width:${(v / max * 100).toFixed(1)}%;background:${langs[i].color}"><span>${v.toFixed(1)} MB</span></div>
+      </div>
+    </div>`).join("");
+}
+
+const detect = [2, 2, 2];
+const parity = [
+  ["Daemon starts + /health", 1, 1, 1],
+  ["OpenCode agent detection", 1, 1, 1],
+  ["Event ingestion + JSONL store", 1, 1, 1],
+  ["Header / URL redaction", 1, 1, 1],
+  ["Rules CRUD + persistence", 1, 1, 1],
+  ["Dashboard + UI token", 1, 1, 1],
+  ["Self-protection (:4317)", 1, 1, 1],
+  ["Autostart via plugin", 1, 1, 1],
+];
+const advantage = [
+  ["High-frequency event ingest", [2, 4, 5]],
+  ["Long-running memory stability", [1, 4, 5]],
+  ["Many concurrent sessions", [2, 5, 4]],
+  ["Cold start / CLI latency", [1, 4, 5]],
+  ["Single-binary deploy (no runtime)", [0, 5, 4]],
+  ["CPU-heavy content scanning", [2, 4, 5]],
+  ["Memory-constrained devices", [1, 4, 5]],
+  ["Ecosystem / quick iteration", [5, 4, 3]],
+];
+const futureFeatures = [
+  "Streaming ingestion of millions of events with an indexed, compacted store (SQLite) — CPU + I/O heavy; would stall the JS event loop.",
+  "Native file-integrity / taint watching across many files (hashing + FSEvents) — runs at native speed with no GC pauses.",
+  "Real-time fan-out to hundreds of dashboard clients (WebSockets) — native threads/async without blocking the loop.",
+  "On-device heuristic / anomaly scoring over the event stream — compute-bound work JS handles poorly.",
+  "Packet capture (pcap) / syscall-level monitoring — needs native sockets.",
+  "An always-on tiny daemon on constrained or low-power machines — ~3 MB vs ~44 MB matters.",
+];
+
+function renderDetect() {
+  const max = Math.max(...detect) || 1;
+  document.getElementById("detect").innerHTML = langs.map((l, i) => `
+    <div class="row">
+      <div class="label">${l.name}</div>
+      <div class="track"><div class="bar" style="width:${(detect[i] / max * 100).toFixed(0)}%;background:${l.color}"><span>${detect[i]} agents</span></div></div>
+    </div>`).join("") +
+    `<p class="note" style="margin:10px 0 0">All three returned the same 2 OpenCode processes (pids 19466, 19869, under Zed) and the same 11 rules.</p>`;
+}
+
+function renderParity() {
+  const head = `<tr><th>Capability</th>${langs.map(l => `<th style="color:${l.color}">${l.name}</th>`).join("")}</tr>`;
+  const rows = parity.map(r => `<tr><td>${r[0]}</td>${[1, 2, 3].map(i => `<td class="${r[i] ? "ok" : ""}">${r[i] ? "✓" : "✗"}</td>`).join("")}</tr>`).join("");
+  document.getElementById("parity").innerHTML = `<table class="matrix"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderAdvantage() {
+  document.getElementById("advantage").innerHTML = advantage.map(([name, vals]) => `
+    <div class="adv-name">${name}</div>
+    ${langs.map((l, i) => `
+      <div class="lat-seg">
+        <div class="k">${l.key}</div>
+        <div class="t"><div class="b" style="width:${vals[i] / 5 * 100}%;background:${l.color}"></div></div>
+        <div class="v">${vals[i]}/5</div>
+      </div>`).join("")}`).join("");
+}
+
+function renderFutures() {
+  document.getElementById("futures").innerHTML = futureFeatures.map(f => `<li>${f}</li>`).join("");
+}
+
+renderCards();
+renderCharts();
+renderRadar();
+renderLatency();
+renderThroughput();
+renderMemLine();
+renderPeakBars();
+renderDetect();
+renderParity();
+renderAdvantage();
+renderFutures();
+</script>
+</body>
+</html>
