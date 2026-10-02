@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>corral — OpenCode firewall</title>
+<style>
+:root, [data-theme="dark"] { color-scheme: dark; --bg: #09090b; --sidebar: #0b0b0d; --panel: #101014; --panel2: #16161a; --card-bg: #ffffff05; --text: #ececee; --muted: #8f8f99; --accent: #ececee; --accent-ink: #0a0a0b; --danger: #e5484d; --ok: #46c08a; --border: #ffffff10; --border-strong: #ffffff22; --shadow: 0 1px 0 #ffffff08 inset; }
+[data-theme="light"] { color-scheme: light; --bg: #f4f4f5; --sidebar: #fbfbfc; --panel: #ffffff; --panel2: #efeff1; --card-bg: #ffffffb0; --text: #131316; --muted: #6d6d76; --accent: #131316; --accent-ink: #ffffff; --danger: #d13438; --ok: #1f9d63; --border: #00000012; --border-strong: #00000026; --shadow: 0 1px 2px #0000000d; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; letter-spacing: -.01em; transition: background .2s, color .2s; }
+/* ——— sidebar + 45° hatch divider (pure CSS, zero assets) ——— */
+aside { width: 248px; flex-shrink: 0; background: var(--sidebar); padding: 22px 14px 16px 16px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; }
+aside::before { content: ""; position: absolute; top: 0; bottom: 0; right: 10px; width: 1px; background: var(--border); }
+aside::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; width: 10px; background-image: repeating-linear-gradient(45deg, var(--border-strong) 0 1px, transparent 1px 7px); opacity: .8; pointer-events: none; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; padding: 6px 10px 20px; }
+.brand::before { content: ""; width: 9px; height: 9px; background: var(--text); border-radius: 2px; transform: rotate(45deg); flex-shrink: 0; }
+.nav { display: flex; flex-direction: column; gap: 3px; }
+.nav button { position: relative; display: flex; width: 100%; gap: 10px; align-items: center; padding: 10px 12px 10px 15px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 13.5px; font-weight: 550; cursor: pointer; text-align: left; transition: background .18s ease, color .18s ease, transform .18s ease, border-color .18s ease; }
+.nav button:hover { background: #ffffff07; color: var(--text); transform: translateX(2px); }
+[data-theme="light"] .nav button:hover { background: #00000006; }
+.nav button.active { background: #ffffff09; color: var(--text); border-color: var(--border); }
+[data-theme="light"] .nav button.active { background: #00000007; }
+.nav button.active::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; border-radius: 99px; background: var(--text); opacity: .85; animation: barIn .25s ease both; }
+@keyframes barIn { from { transform: scaleY(.2); opacity: 0; } to { transform: scaleY(1); opacity: .85; } }
+main { position: relative; flex: 1; min-width: 0; padding: 32px 36px 48px; max-width: 1120px; isolation: isolate; }
+/* main: 45° tick pattern + hairline grid, fading top → bottom (pure gradient) */
+main::before { content: ""; position: fixed; top: 0; right: 0; bottom: 0; left: 248px; z-index: -1; pointer-events: none; background-image: repeating-linear-gradient(45deg, var(--border) 0 1px, transparent 1px 16px); -webkit-mask-image: linear-gradient(to bottom, #000 0, #0000000f 34%, transparent 72%); mask-image: linear-gradient(to bottom, #000 0, #0000000f 34%, transparent 72%); }
+main::after { content: ""; position: fixed; top: 0; right: 0; bottom: 0; left: 248px; z-index: -1; pointer-events: none; background-image: linear-gradient(to right, var(--border) 1px, transparent 1px), linear-gradient(to bottom, var(--border) 1px, transparent 1px); background-size: 68px 68px; -webkit-mask-image: linear-gradient(to bottom, #0000008c 0, #0000001a 26%, transparent 58%); mask-image: linear-gradient(to bottom, #0000008c 0, #0000001a 26%, transparent 58%); }
+section { display: none; } section.active { display: block; animation: rise .28s ease both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+h2 { margin: 0 0 4px; font-size: 21px; font-weight: 650; letter-spacing: -.02em; } .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+.stats { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.stat { background: var(--card-bg); border: 1px solid var(--border); border-radius: 13px; padding: 15px 20px; min-width: 160px; box-shadow: none; position: relative; overflow: hidden; }
+.stat::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: repeating-linear-gradient(45deg, var(--border-strong) 0 6px, transparent 6px 12px); opacity: .5; }
+.stat b { font-size: 26px; display: block; font-weight: 650; font-variant-numeric: tabular-nums; } .stat span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .09em; font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+/* ——— minimal premium cards: no blue, dark blocks, hairline only ——— */
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; box-shadow: none; transition: border-color .18s ease, transform .18s ease; }
+.card:hover { border-color: var(--border-strong); }
+.session { position: relative; overflow: hidden; }
+.session::after { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 2px; border-radius: 99px; background: var(--border-strong); }
+.agent-head { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+.agent-head .aname { font-weight: 650; letter-spacing: -.01em; font-size: 14px; }
+.cmd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); margin-top: 8px; padding: 7px 9px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: stretch; }
+input { flex: 1; min-width: 200px; padding: 13px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2); color: inherit; font-size: 13.5px; outline: none; transition: border-color .15s ease; }
+input:focus { border-color: var(--border-strong); }
+input::placeholder { color: var(--muted); }
+button.primary { padding: 13px 20px; border-radius: 12px; border: 1px solid transparent; background: var(--accent); color: var(--accent-ink); cursor: pointer; font-weight: 650; font-size: 13.5px; transition: transform .15s ease, opacity .15s ease; }
+button.primary:hover { transform: translateY(-1px); opacity: .94; } button.primary:active { transform: none; }
+button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 6px 11px; cursor: pointer; font-size: 12px; font-weight: 550; transition: color .15s ease, border-color .15s ease; }
+button.ghost:hover { color: var(--text); border-color: var(--border-strong); }
+button.danger { background: transparent; border: 1px solid #e5484d3d; color: #f2555a; border-radius: 8px; padding: 6px 11px; cursor: pointer; font-size: 12px; font-weight: 550; transition: background .15s ease; }
+button.danger:hover { background: #e5484d14; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; padding: 8px 9px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 650; border-bottom: 1px solid var(--border); }
+td { text-align: left; padding: 10px 9px; border-bottom: 1px solid var(--border); } tr:last-child td { border-bottom: 0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.pill { display: inline-flex; align-items: center; justify-content: center; min-width: 62px; padding: 3px 11px; border-radius: var(--r-chip); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: var(--panel2); color: var(--muted); }
+.pill.on { background: #46c08a1f; color: var(--ok); }
+.muted { color: var(--muted); } #err { color: var(--danger); min-height: 1.2em; font-size: 13px; }
+.chip { display: inline-block; padding: 3px 9px; border-radius: var(--r-chip); font-size: 10.5px; font-weight: 650; letter-spacing: .04em; background: var(--panel2); border: 0; color: var(--muted); margin-left: 8px; vertical-align: middle; }
+/* ide pills: muted per-ide hues (color-mix tint, zero assets) */
+.chip[class*="ide-"] { background: color-mix(in srgb, var(--ide) 15%, transparent); color: var(--ide-ink); }
+.ide-slate { --ide: #8a90a6; --ide-ink: #a4aabf; }
+.ide-blue { --ide: #4f8cff; --ide-ink: #7aa5ff; }
+.ide-cyan { --ide: #22c3d6; --ide-ink: #4fd6e4; }
+.ide-violet { --ide: #8e7bd8; --ide-ink: #a894e8; }
+.ide-teal { --ide: #2fbfa0; --ide-ink: #45d3b4; }
+.ide-green { --ide: #46c08a; --ide-ink: #5bd39a; }
+.ide-amber { --ide: #f5a524; --ide-ink: #f0b44c; }
+.ide-orange { --ide: #f76b15; --ide-ink: #ff8a3d; }
+.ide-pink { --ide: #e57ab8; --ide-ink: #ef8fc3; }
+[data-theme="light"] .ide-slate { --ide-ink: #5b6178; }
+[data-theme="light"] .ide-blue { --ide-ink: #2f6df6; }
+[data-theme="light"] .ide-cyan { --ide-ink: #0e8fa0; }
+[data-theme="light"] .ide-violet { --ide-ink: #6b54c4; }
+[data-theme="light"] .ide-teal { --ide-ink: #128a73; }
+[data-theme="light"] .ide-green { --ide-ink: #1f9d63; }
+[data-theme="light"] .ide-amber { --ide-ink: #b7791f; }
+[data-theme="light"] .ide-orange { --ide-ink: #c65a11; }
+[data-theme="light"] .ide-pink { --ide-ink: #c14e8f; }
+.blocked-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.blocked { background: var(--panel2); border: 1px solid var(--border); border-left: 2px solid #e5484d66; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; overflow: hidden; min-width: 0; }
+.blocked .why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+.blocked .detail { color: var(--text); word-break: break-all; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
+.blocked b { color: #f2555a; font-weight: 650; } .blocked time { color: var(--muted); font-size: 11px; display: block; margin-top: 4px; }
+.blocked-empty { color: var(--muted); font-size: 12px; margin-top: 10px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.topbar .muted { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 650; }
+/* shimmer: highlight band clipped to the glyphs, mask fades it toward the baseline */
+.shimmer { position: relative; display: inline-block; }
+.shimmer::after { content: attr(data-shimmer); position: absolute; inset: 0; color: var(--text); background: linear-gradient(100deg, transparent 0%, #ffffff00 38%, #ffffff66 48%, #ffffff 50%, #ffffff66 52%, #ffffff00 62%, transparent 100%) 0 0 / 260% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; -webkit-mask-image: linear-gradient(to bottom, #000 0 58%, #0000000 100%); mask-image: linear-gradient(to bottom, #000 0 58%, #0000000 100%); animation: sheen 3.6s cubic-bezier(.5,0,.5,1) infinite; pointer-events: none; }
+@keyframes sheen { 0% { background-position: 140% 0; } 100% { background-position: -40% 0; } }
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); -webkit-backdrop-filter: blur(8px) saturate(1.2); backdrop-filter: blur(8px) saturate(1.2); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; overflow-y: auto; }
+.modal-back.open { display: flex; animation: dimIn .2s ease both; }
+@keyframes dimIn { from { opacity: 0; } to { opacity: 1; } }
+.modal { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 20px; padding: 24px; width: min(440px, 94vw); box-shadow: 0 24px 70px rgba(0,0,0,.45), 0 1px 0 #ffffff10 inset; animation: pop .28s cubic-bezier(.2,.9,.25,1.15) both; }
+@keyframes pop { from { opacity: 0; transform: scale(.95) translateY(10px); } to { opacity: 1; transform: none; } }
+.kill-ico { width: 38px; height: 38px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #e5484d14; border: 1px solid #e5484d3d; color: #f2555a; margin-bottom: 14px; }
+.kill-ico .ico { width: 18px; height: 18px; opacity: 1; }
+.modal h3 { margin: 0; font-size: 16.5px; font-weight: 650; letter-spacing: -.015em; }
+.modal h3 .pid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--panel2); border: 1px solid var(--border); border-radius: 7px; padding: 2px 7px; margin-left: 6px; vertical-align: 2px; white-space: nowrap; }
+.modal p { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 8px 0 0; }
+.kill-cmd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--muted); background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; margin-top: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kill-cmd:empty { display: none; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; padding-top: 16px; background: var(--dash-h) top left / 100% 1px no-repeat; }
+.modal .actions .ghost { padding: 9px 16px; border-radius: 10px; }
+button.danger-solid { background: var(--danger); border: 1px solid transparent; color: #fff; border-radius: 10px; padding: 9px 18px; cursor: pointer; font-size: 13px; font-weight: 650; box-shadow: 0 6px 18px #e5484d45; transition: transform .15s ease, filter .15s ease; }
+button.danger-solid:hover { transform: translateY(-1px); filter: brightness(1.08); }
+button.danger-solid:active { transform: none; }
+/* ——— svg icons + firewall blocks (inline svg, no assets) ——— */
+.ico { width: 15px; height: 15px; flex-shrink: 0; opacity: .85; }
+.nav button .ico { width: 16px; height: 16px; opacity: .8; transition: opacity .18s ease, transform .18s ease; }
+.nav button.active .ico { opacity: 1; }
+.nav button:hover .ico { transform: scale(1.08); }
+#theme { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; text-transform: capitalize; }
+#theme .ico { width: 14px; height: 14px; }
+.side-foot { margin-top: auto; padding: 4px 2px; display: flex; flex-direction: column; gap: 6px; }
+.side-link { display: inline-flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; color: var(--muted); font-size: 12.5px; font-weight: 600; text-decoration: none; border: 1px solid transparent; transition: color .15s ease, background .15s ease, border-color .15s ease; }
+.side-link:hover { color: var(--text); background: #ffffff07; border-color: var(--border); }
+[data-theme="light"] .side-link:hover { background: #00000006; }
+.side-link .x-ico { width: 13px; height: 13px; flex-shrink: 0; }
+.side-link .ext { width: 11px; height: 11px; margin-left: auto; opacity: .6; }
+/* ——— scrollbars: thin, hairline, tick-mark thumb (webkit + firefox) ——— */
+:root { --sb-track: transparent; --sb-thumb: #ffffff1f; --sb-thumb-hover: #ffffff33; }
+[data-theme="light"] { --sb-thumb: #0000001c; --sb-thumb-hover: #00000033; }
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) var(--sb-track); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--sb-track); }
+::-webkit-scrollbar-thumb { background: var(--sb-thumb); border: 3px solid transparent; background-clip: content-box; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: var(--sb-track); }
+.modal-back { scrollbar-width: thin; }
+@media (prefers-reduced-motion: no-preference) {
+  ::-webkit-scrollbar-thumb { transition: background .2s ease; }
+}
+
+/* ——— custom tick-line system (engineered rhythm, pure gradient, no native pattern) ——— */
+:root { --r-chip: 6px; --dash-h: repeating-linear-gradient(to right, var(--border-strong) 0 6px, transparent 6px 10px, var(--border-strong) 10px 11px, transparent 11px 15px); }
+.fw-block { position: relative; background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 24px 4px 26px; margin: 0; overflow: visible; }
+.fw-block + .fw-block::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--dash-h); opacity: .9; }
+.fw-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+.fw-ico { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; background: var(--card-bg); flex-shrink: 0; }
+.fw-ico .ico { width: 15px; height: 15px; opacity: .9; }
+.fw-head h3 { margin: 0; font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; }
+.fw-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
+.fw-count { margin-left: auto; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--panel2); border: 0; padding: 4px 11px; border-radius: var(--r-chip); white-space: nowrap; flex-shrink: 0; }
+.fw-count.on { background: #46c08a1f; color: var(--ok); }
+.fw-table { background: var(--card-bg); border: 1px solid var(--border) !important; border-radius: 12px !important; box-shadow: none !important; }
+#tab-firewall td, #tab-firewall th { border-bottom: 1px solid var(--border); }
+#tab-firewall tr:last-child td { border-bottom: 0; }
+.cmd-group { position: relative; margin-bottom: 16px; } .cmd-group:last-child { margin-bottom: 2px; }
+.cmd-group + .cmd-group { margin-top: 16px; padding-top: 18px; }
+.cmd-group + .cmd-group::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--dash-h); opacity: .8; }
+.cmd-group-title { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--grp); margin-bottom: 8px; }
+.cmd-group-title .ico { width: 13px; height: 13px; opacity: 1; color: var(--grp); }
+.cmd-group { --grp: var(--text); }
+.cmd-group.g-slate { --grp: #a4aabf; }
+.cmd-group.g-blue { --grp: #7aa5ff; }
+.cmd-group.g-orange { --grp: #ff9a4d; }
+.cmd-group.g-yellow { --grp: #e8c352; }
+.cmd-group.g-pink { --grp: #ef8fc3; }
+[data-theme="light"] .cmd-group.g-slate { --grp: #5b6178; }
+[data-theme="light"] .cmd-group.g-blue { --grp: #2f6df6; }
+[data-theme="light"] .cmd-group.g-orange { --grp: #c65a11; }
+[data-theme="light"] .cmd-group.g-yellow { --grp: #9a7b12; }
+[data-theme="light"] .cmd-group.g-pink { --grp: #c14e8f; }
+.cmd-card { padding: 12px 13px !important; background: var(--card-bg) !important; border: 1px solid var(--border) !important; box-shadow: none !important; }
+/* command rows: compact single-line tiles, status is a dot not a word */
+.cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 8px; }
+.cmd-row {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px 9px 12px; border-radius: 11px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.cmd-row:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.cmd-row .cmd-label {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cmd-row .cmd-label b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.cmd-row .st { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.cmd-row.on { border-color: color-mix(in srgb, var(--ok) 22%, transparent); }
+.cmd-row.on .st { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+.cmd-row .cmd-act {
+  flex: none; opacity: 0; padding: 4px 10px; border-radius: 8px;
+  font-size: 11px; font-weight: 650; letter-spacing: .02em; cursor: pointer;
+  color: var(--muted); background: transparent; border: 1px solid var(--border);
+  transition: opacity .16s ease, color .16s ease, border-color .16s ease, background .16s ease;
+}
+.cmd-row:hover .cmd-act, .cmd-row .cmd-act:focus-visible { opacity: 1; }
+.cmd-row.on .cmd-act { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 34%, transparent); }
+.cmd-row.on .cmd-act:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.cmd-row .cmd-act.danger { opacity: 0; color: var(--danger); border-color: var(--border); }
+.cmd-row:hover .cmd-act.danger { opacity: .85; }
+.cmd-row .cmd-act.danger:hover { opacity: 1; background: color-mix(in srgb, var(--danger) 16%, transparent); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+@media (hover: none) { .cmd-row .cmd-act, .cmd-row .cmd-act.danger { opacity: 1; } }
+.empty-row td { color: var(--muted); font-size: 12.5px; }
+/* corner plus marks (pure css, no assets) — inside cards, crop-style outside fw blocks */
+.cx { position: absolute; width: 9px; height: 9px; opacity: .55; pointer-events: none; }
+.cx::before, .cx::after { content: ""; position: absolute; background: var(--muted); }
+.cx::before { left: 4px; top: 0; bottom: 0; width: 1px; }
+.cx::after { top: 4px; left: 0; right: 0; height: 1px; }
+.cx.tl { top: 6px; left: 6px; } .cx.tr { top: 6px; right: 6px; }
+.cx.bl { bottom: 6px; left: 6px; } .cx.br { bottom: 6px; right: 6px; }
+.fw-block > .cx.tl { top: 8px; left: -8px; } .fw-block > .cx.tr { top: 8px; right: -8px; }
+.fw-block > .cx.bl { bottom: 8px; left: -8px; } .fw-block > .cx.br { bottom: 8px; right: -8px; }
+/* agents share the language: dash-dot rule above blocked attempts */
+#tab-agents .blocked-list { background: var(--dash-h) top left / 100% 1px no-repeat; padding-top: 12px; margin-top: 10px; }
+/* layout-shift guards: toggle states keep identical geometry */
+.fw-table td:first-child { width: 96px; }
+.fw-table td:last-child { white-space: nowrap; text-align: right; }
+.fw-table button[data-toggle] { min-width: 78px; text-align: center; }
+.cmd-card .chip-live, .cmd-card .chip-idle { min-width: 80px; }
+button[data-cmd-toggle] { min-width: 66px; text-align: center; }
+.fw-count { min-width: 90px; text-align: center; font-variant-numeric: tabular-nums; }
+#tab-agents .session::after { display: none; }
+#tab-agents .agent-head button { margin-left: auto; }
+/* green live chips: active = green, paused = muted */
+/* chip family: single radius token, borderless fill, no status dot */
+.chip-live { display: inline-flex; align-items: center; justify-content: center; margin-top: 7px; padding: 3px 11px; border-radius: var(--r-chip); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: #46c08a1f; color: var(--ok); }
+.chip-idle { display: inline-flex; align-items: center; justify-content: center; margin-top: 7px; padding: 3px 11px; border-radius: var(--r-chip); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: var(--panel2); color: var(--muted); }
+
+@media (max-width: 820px) { aside { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; } aside::before, aside::after { display: none; } .nav { flex-direction: row; } body { flex-direction: column; } main { padding: 20px; } main::before, main::after { left: 0; top: 56px; } .fw-head { flex-wrap: wrap; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<aside>
+<div class="brand">corral</div>
+<div class="nav">
+<button data-tab="agents" class="active"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2.5"/><path d="M5.5 6.5 7.5 8.5 5.5 10.5M10 10.5h2"/></svg>Agents</button>
+<button data-tab="firewall"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 13 3.6v3.8c0 3.2-2.2 5.3-5 6.4-2.8-1.1-5-3.2-5-6.4V3.6Z"/><path d="M6.2 7.8l1.3 1.3 2.3-2.6"/></svg>Firewall</button>
+</div>
+<div class="side-foot"><a class="side-link" href="https://x.com/zerion0" target="_blank" rel="noopener"><svg class="x-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg><span>Twitter</span><svg class="ext" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h6v6M12.5 3.5 4 12"/></svg></a></div>
+</aside>
+<main>
+<div class="topbar"><div class="muted shimmer" data-shimmer="OpenCode only">OpenCode only</div><button class="ghost" id="theme" aria-label="Toggle theme"></button></div>
+<section id="tab-agents" class="active">
+<h2>Agents</h2><div class="sub">OpenCode processes running now</div>
+<div class="stats"><div class="stat"><i class="cx tl" aria-hidden="true"></i><i class="cx tr" aria-hidden="true"></i><i class="cx bl" aria-hidden="true"></i><i class="cx br" aria-hidden="true"></i><b id="st-agents">–</b><span>running</span></div><div class="stat"><i class="cx tl" aria-hidden="true"></i><i class="cx tr" aria-hidden="true"></i><i class="cx bl" aria-hidden="true"></i><i class="cx br" aria-hidden="true"></i><b id="st-rules">–</b><span>firewall rules</span></div></div>
+<div class="grid" id="agent-grid"></div>
+</section>
+<section id="tab-firewall">
+<h2>Firewall</h2><div class="sub">Enforced inside OpenCode before the tool runs</div>
+<div class="fw-block">
+<i class="cx tl" aria-hidden="true"></i><i class="cx tr" aria-hidden="true"></i><i class="cx bl" aria-hidden="true"></i><i class="cx br" aria-hidden="true"></i>
+<div class="fw-head"><div class="fw-ico"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="2.5"/><path d="M5.5 6.5 7.5 8.5 5.5 10.5M10 10.5h2"/></svg></div><div><h3>Commands</h3><p>Shell commands the agent may not run — substring or /regex/.</p></div><span class="fw-count" id="fw-cmd-count">–</span></div>
+<div class="row"><input id="cmd-custom" placeholder="e.g. npm publish  or  /terraform (apply|destroy)/" /><button class="primary" id="add-cmd">Block command</button></div>
+<div id="cmd-grid" style="margin-bottom:2px"></div>
+</div>
+<div class="fw-block">
+<i class="cx tl" aria-hidden="true"></i><i class="cx tr" aria-hidden="true"></i><i class="cx bl" aria-hidden="true"></i><i class="cx br" aria-hidden="true"></i>
+<div class="fw-head"><div class="fw-ico"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.8h5.5L12.5 5v9.2H4Z"/><path d="M9.3 2v3.2h3.1"/></svg></div><div><h3>Excluded files</h3><p>Paths or globs the agent must never touch — e.g. <code>.env*</code>.</p></div><span class="fw-count" id="fw-file-count">–</span></div>
+<div class="row"><input id="file-path" placeholder="e.g. .env*  or  /home/you/app/secrets/**" /><button class="primary" id="add-file">Exclude</button></div>
+<div class="card fw-table"><table><thead><tr><th></th><th>Excluded path</th><th></th></tr></thead><tbody id="rules-file"></tbody></table></div>
+</div>
+<div class="fw-block">
+<i class="cx tl" aria-hidden="true"></i><i class="cx tr" aria-hidden="true"></i><i class="cx bl" aria-hidden="true"></i><i class="cx br" aria-hidden="true"></i>
+<div class="fw-head"><div class="fw-ico"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><path d="M2.2 8h11.6M8 2.2c-3.6 3.6-3.6 7.9 0 11.6 3.6-3.7 3.6-8 0-11.6Z"/></svg></div><div><h3>HTTP requests</h3><p>Block hosts (covers subdomains) or URL prefixes.</p></div><span class="fw-count" id="fw-http-count">–</span></div>
+<div class="row"><input id="http" placeholder="e.g. evil.com  or  https://evil.com/" /><button class="primary" id="add-http">Block host</button></div>
+<div class="card fw-table"><table><thead><tr><th></th><th>Host / URL</th><th></th></tr></thead><tbody id="rules-http"></tbody></table></div>
+</div>
+<div id="err"></div>
+<div class="fw-block">
+<i class="cx tl" aria-hidden="true"></i><i class="cx tr" aria-hidden="true"></i><i class="cx bl" aria-hidden="true"></i><i class="cx br" aria-hidden="true"></i>
+<div class="fw-head"><div class="fw-ico"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 13 3.6v3.8c0 3.2-2.2 5.3-5 6.4-2.8-1.1-5-3.2-5-6.4V3.6Z"/><path d="M6.2 7.8l1.3 1.3 2.3-2.6"/></svg></div><div><h3>Self-protection</h3><p>Agents normally cannot reach this dashboard. Turn it on to let them <em>read</em> which commands and paths are blocked — writes stay refused.</p></div><span class="fw-count" id="fw-self-count">–</span></div>
+<div class="row"><button class="primary" id="toggle-dashboard-access">Allow agent dashboard access</button><span class="muted" id="dashboard-access-state">–</span></div>
+<div class="kill-cmd" id="dashboard-access-hint" style="display:none"></div>
+</div>
+</section>
+</main>
+<div class="modal-back" id="kill-modal"><div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="kill-title">
+<div class="kill-ico"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8 15 13.8H1Z"/><path d="M8 6v3.4M8 11.7v.2"/></svg></div>
+<h3 id="kill-title">Kill agent?</h3>
+<p id="kill-desc"></p>
+<div class="kill-cmd" id="kill-cmd"></div>
+<div class="actions"><button class="ghost" id="kill-cancel">Cancel</button><button class="danger-solid" id="kill-confirm">Kill agent</button></div>
+</div></div>
+<script>
+var API = location.origin;
+var AG_UI_TOKEN = "";
+function ui(method, url, body){
+  return fetch(url, { method: method, headers: { "x-corral-ui": AG_UI_TOKEN, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+}
+var theme = localStorage.getItem("corral-theme") || "dark";
+var ICON_MOON = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z"/></svg>';
+var ICON_SUN = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/></svg>';
+function applyTheme(t){ document.documentElement.dataset.theme = t; localStorage.setItem("corral-theme", t); document.getElementById("theme").innerHTML = (t === "dark" ? ICON_MOON : ICON_SUN) + "<span>" + t + "</span>"; }
+applyTheme(theme);
+document.getElementById("theme").onclick = function(){ applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); };
+document.querySelectorAll(".nav button").forEach(function(b){ b.onclick = function(){
+  document.querySelectorAll(".nav button").forEach(function(x){ x.classList.remove("active"); });
+  b.classList.add("active");
+  document.querySelectorAll("section").forEach(function(s){ s.classList.remove("active"); });
+  document.getElementById("tab-" + b.dataset.tab).classList.add("active");
+};});
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+var pendingKill = null;
+function closeKill(){ pendingKill = null; document.getElementById("kill-modal").classList.remove("open"); document.body.style.overflow = ""; }
+function askKill(pid, name, cmd){
+  pendingKill = pid;
+  document.getElementById("kill-title").innerHTML = "Kill " + esc(name) + '<span class="pid">pid ' + pid + "</span>";
+  document.getElementById("kill-desc").textContent = "The OpenCode process will be terminated (SIGTERM). This can't be undone.";
+  document.getElementById("kill-cmd").textContent = (cmd || "").slice(0, 160);
+  document.getElementById("kill-modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+  document.getElementById("kill-cancel").focus();
+}
+document.getElementById("kill-cancel").onclick = function(){ closeKill(); };
+document.getElementById("kill-modal").onclick = function(e){ if(e.target.id === "kill-modal"){ closeKill(); } };
+document.addEventListener("keydown", function(e){ if(e.key === "Escape" && document.getElementById("kill-modal").classList.contains("open")){ closeKill(); } });
+document.getElementById("kill-confirm").onclick = async function(){
+  if(!pendingKill) return;
+  await ui("POST", API + "/api/agents/" + pendingKill + "/kill");
+  lastAgentsAt = 0; closeKill(); load();
+};
+var lastAgents = [], lastAgentsAt = 0;
+async function load(){
+  var agents = [], rules = [], events = [], settings = { allowDashboardAccess: false };
+  if (Date.now() - lastAgentsAt > 15000) {
+    lastAgentsAt = Date.now();
+    try { lastAgents = (await (await fetch(API + "/api/agents")).json()).agents || []; }
+    catch(e){ lastAgents = []; }
+  }
+  agents = lastAgents;
+  try { rules = (await (await fetch(API + "/api/rules")).json()).rules || []; } catch(e){}
+  try { events = (await (await fetch(API + "/api/events?limit=200")).json()).events || []; } catch(e){}
+  try { settings = (await (await fetch(API + "/api/settings")).json()).settings || settings; } catch(e){}
+  var blocked = events.filter(function(e){ return e.data && e.data.blocked; });
+  function blockedFor(pid){
+    return blocked.filter(function(e){ return e.agent && e.agent.pid === pid; }).slice(-5).reverse();
+  }
+  function fmtTime(t){ try { return new Date(t).toLocaleString(); } catch(e){ return t || ""; } }
+  function blockReason(e){
+    var d = e.data || {};
+    var kind = d.file ? "file" : d.command ? "command" : d.url ? "http" : "rule";
+    var what = (d.file || d.command || d.url || d.ruleName || "blocked by firewall") + ""; var base = what.split("/").pop() || what; var label = kind === "file" ? base : what.slice(0, 80); return { kind: kind, short: label, full: what, tool: d.tool || "" };
+  }
+  document.getElementById("st-agents").textContent = agents.length;
+  document.getElementById("st-rules").textContent = rules.length;
+  var SVG_OPEN = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+  var CMD_GROUPS = [
+    { name: "File system", tone: "g-blue", icon: SVG_OPEN + '<path d="M2.5 4.5h4l1.2 1.5h5.8V12H2.5Z"/></svg>', cmds: ["rm", "rm -rf", "mv", "dd", "mkfs", "chmod", "chown"] },
+    { name: "Git", tone: "g-orange", icon: SVG_OPEN + '<circle cx="5" cy="4.5" r="1.6"/><circle cx="5" cy="11.5" r="1.6"/><circle cx="11" cy="8" r="1.6"/><path d="M5 6.1v3.8M6.3 7.6c2.4 0 1.9-.7 3.2-.7"/></svg>', cmds: ["git push", "git push --force", "git reset --hard", "git checkout", "git clean -fd", "git rebase", "git commit", "git add", "gh"] },
+    { name: "Network", tone: "g-yellow", icon: SVG_OPEN + '<circle cx="8" cy="8" r="5.8"/><path d="M2.2 8h11.6M8 2.2c-3.6 3.6-3.6 7.9 0 11.6 3.6-3.7 3.6-8 0-11.6Z"/></svg>', cmds: ["curl", "wget", "ssh", "scp", "ftp", "nc"] },
+    { name: "Privilege & containers", tone: "g-pink", icon: SVG_OPEN + '<rect x="3" y="7" width="10" height="7" rx="2"/><path d="M5.5 7V5.5a2.5 2.5 0 0 1 5 0V7"/></svg>', cmds: ["sudo", "su", "docker", "kubectl"] },
+  ];
+  var KNOWN_CMDS = CMD_GROUPS.reduce(function(a, g){ return a.concat(g.cmds); }, []);
+  function cmdRuleFor(c){ return rules.filter(function(r){ return r.match && r.match.kind === "command" && r.match.value === c; })[0]; }
+  function cmdCard(c, custom){
+    var r = cmdRuleFor(c); var blocked = !!(r && r.enabled);
+    var del = (custom && r) ? "<button class='cmd-act danger' data-del='" + esc(r.id) + "' title='Delete this rule'>✕</button>" : "";
+    return "<div class='cmd-row" + (blocked ? " on" : "") + "' title='" + (blocked ? "Blocked" : (r ? "Rule paused" : "Not blocked")) + " — " + esc(c) + "'><i class='st'></i><span class='cmd-label'><b>" + esc(c) + "</b></span>" + del + "<button class='cmd-act' data-cmd-toggle='" + esc(c) + "'>" + (blocked ? "allow" : "block") + "</button></div>";
+  }
+  // custom rules (regexes or commands outside the standard lists) render in their own group so nothing is hidden
+  var customCmds = rules.filter(function(r){ return r.match && r.match.kind === "command" && KNOWN_CMDS.indexOf(r.match.value) === -1; }).map(function(r){ return r.match.value; });
+  var GROUPS = CMD_GROUPS.slice();
+  if(customCmds.length){
+    GROUPS.push({ name: "Custom patterns", tone: "g-slate", custom: true, icon: SVG_OPEN + '<path d="M6 2.5 2.5 8 6 13.5M10 2.5 13.5 8 10 13.5"/></svg>', cmds: customCmds });
+  }
+  document.getElementById("cmd-grid").innerHTML = GROUPS.map(function(g){
+    return "<div class='cmd-group " + g.tone + "'><div class='cmd-group-title'>" + g.icon + esc(g.name) + "</div><div class='cmd-grid'>" + g.cmds.map(function(c){ return cmdCard(c, g.custom); }).join("") + "</div></div>";
+  }).join("");
+  document.querySelectorAll("[data-cmd-toggle]").forEach(function(b){ b.onclick = async function(){
+    var c = b.dataset.cmdToggle; var r = cmdRuleFor(c);
+    if(r){ r.enabled = !r.enabled; await ui("PUT", API + "/api/rules/" + encodeURIComponent(r.id), r); }
+    else { await ui("POST", API + "/api/rules", { match: { kind: "command", value: c }, scope: {} }); }
+    load(); };});
+  function ruleRow(r){
+    return "<tr><td><span class='pill" + (r.enabled ? " on" : "") + "'>" + (r.enabled ? "active" : "paused") + "</span></td><td><code>" + esc(r.match.value) + "</code></td><td><button class='ghost' data-toggle='" + r.id + "'>" + (r.enabled ? "disable" : "enable") + "</button> <button class='danger' data-del='" + r.id + "'>delete</button></td></tr>";
+  }
+  var files = rules.filter(function(r){ return r.match && r.match.kind === "file"; });
+  var https = rules.filter(function(r){ return r.match && r.match.kind === "http"; });
+  // count the rendered cards themselves, so the badge can never disagree with the visible chips
+  var cmdsBlocked = GROUPS.reduce(function(n, g){ return n + g.cmds.filter(function(c){ var r = cmdRuleFor(c); return !!(r && r.enabled); }).length; }, 0);
+  function setCount(id, n, label){ var el = document.getElementById(id); if(!el) return; el.textContent = n + " " + label; if(n > 0){ el.classList.add("on"); } else { el.classList.remove("on"); } }
+  setCount("fw-cmd-count", cmdsBlocked, "active");
+  setCount("fw-file-count", files.filter(function(r){ return r.enabled; }).length, "active");
+  setCount("fw-http-count", https.filter(function(r){ return r.enabled; }).length, "active");
+  document.getElementById("rules-file").innerHTML = files.map(ruleRow).join("") || "<tr class='empty-row'><td colspan='3'>Nothing excluded yet.</td></tr>";
+  document.getElementById("rules-http").innerHTML = https.map(ruleRow).join("") || "<tr class='empty-row'><td colspan='3'>No hosts blocked.</td></tr>";
+  document.getElementById("agent-grid").innerHTML = agents.length ? agents.map(function(a){
+    var bl = blockedFor(a.pid);
+    var blHtml = bl.length ? "<div class='blocked-list'>" + bl.map(function(e){
+      var r = blockReason(e);
+      return "<div class='blocked' title='" + esc(r.full) + "'><div class='why'><b>Blocked</b> " + esc(r.kind) + (r.tool ? " · " + esc(r.tool) : "") + "</div><div class='detail'>" + esc(r.short) + "</div><time>" + esc(fmtTime(e.timestamp)) + "</time></div>";
+    }).join("") + "</div>" : "<div class='blocked-empty'>No blocked attempts.</div>";
+    function ideClass(n){ var s = (n || "").toLowerCase();
+      if(/terminal|iterm|ghostty|alacritty|kitty|wezterm|tmux/.test(s)) return "ide-blue";
+      if(/vs ?code|vscodium/.test(s)) return "ide-cyan";
+      if(/cursor/.test(s)) return "ide-violet";
+      if(/windsurf/.test(s)) return "ide-teal";
+      if(/jetbrains|intellij|webstorm|pycharm|goland|phpstorm|clion|rider|android/.test(s)) return "ide-amber";
+      if(/xcode/.test(s)) return "ide-pink";
+      if(/sublime|subl/.test(s)) return "ide-orange";
+      if(/nvim|neovim|\bvim\b/.test(s)) return "ide-green";
+      return "ide-slate"; }
+    var ideChip = a.ide ? "<span class='chip " + ideClass(a.ide) + "'>" + esc(a.ide) + "</span>" : "";
+    return "<div class='card session'><i class='cx tl'></i><i class='cx tr'></i><i class='cx bl'></i><i class='cx br'></i><div class='agent-head'><div><div class='aname'>" + esc(a.name) + ideChip + "</div><div class='muted' style='font-size:12px'>pid " + a.pid + "</div></div><button class='danger' data-kill='" + a.pid + "'>Kill</button></div><div class='cmd'>" + esc(a.command||"") + "</div>" + blHtml + "</div>";
+  }).join("") : "<div class='muted'>No OpenCode agents running.</div>";
+  document.querySelectorAll("[data-kill]").forEach(function(b){ b.onclick = function(){
+    var card = b.closest(".card"); var cmd = card ? card.querySelector(".cmd").textContent : "";
+    askKill(Number(b.dataset.kill), "OpenCode", cmd); };});
+  document.querySelectorAll("[data-del]").forEach(function(b){ b.onclick = async function(){ await ui("DELETE", API + "/api/rules/" + encodeURIComponent(b.dataset.del)); load(); };});
+  document.querySelectorAll("[data-toggle]").forEach(function(b){ b.onclick = async function(){
+    var all = await (await fetch(API + "/api/rules")).json(); var rule = (all.rules||[]).find(function(x){ return x.id === b.dataset.toggle; }); if(!rule) return;
+    rule.enabled = !rule.enabled; await ui("PUT", API + "/api/rules/" + encodeURIComponent(rule.id), rule); load(); };});
+  var dashOn = !!settings.allowDashboardAccess;
+  var dashBtn = document.getElementById("toggle-dashboard-access");
+  var dashState = document.getElementById("dashboard-access-state");
+  var dashHint = document.getElementById("dashboard-access-hint");
+  dashBtn.textContent = dashOn ? "Block agent dashboard access" : "Allow agent dashboard access";
+  dashBtn.classList.toggle("primary", !dashOn);
+  dashBtn.classList.toggle("danger-solid", dashOn);
+  dashState.textContent = dashOn ? "agents can GET the dashboard + API" : "agents are blocked from the dashboard + API";
+  setCount("fw-self-count", dashOn ? 1 : 0, "relaxed");
+  dashHint.style.display = dashOn ? "block" : "none";
+  if(dashOn) dashHint.textContent = "curl http://127.0.0.1:4317/api/rules  ·  read-only: POST/PUT/DELETE are still refused";
+  dashBtn.onclick = async function(){
+    await ui("PUT", API + "/api/settings", { allowDashboardAccess: !dashOn });
+    load();
+  };
+}
+function showErr(msg){ var el = document.getElementById("err"); if(el) el.textContent = msg || ""; }
+async function postRule(kind, value){
+  if(!value) return;
+  try {
+    var res = await ui("POST", API + "/api/rules", { match: { kind: kind, value: value }, scope: {} });
+    if(!res.ok) throw new Error(res.status);
+    showErr("");
+  } catch(e){ showErr("Could not add that rule (" + (e.message || "error") + ")."); }
+  load();
+}
+document.getElementById("add-file").onclick = function(){
+  var input = document.getElementById("file-path"); var v = input.value.trim();
+  if(!v) return;
+  input.value = ""; postRule("file", v);
+};
+document.getElementById("add-cmd").onclick = function(){
+  var input = document.getElementById("cmd-custom"); var v = input.value.trim();
+  if(!v) return;
+  input.value = ""; postRule("command", v);
+};
+document.getElementById("add-http").onclick = function(){
+  var input = document.getElementById("http"); var v = input.value.trim();
+  if(!v) return;
+  input.value = ""; postRule("http", v);
+};
+document.getElementById("file-path").addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); document.getElementById("add-file").click(); } });
+document.getElementById("http").addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); document.getElementById("add-http").click(); } });
+document.getElementById("cmd-custom").addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); document.getElementById("add-cmd").click(); } });
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>

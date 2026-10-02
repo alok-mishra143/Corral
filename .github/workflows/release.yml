@@ -1,0 +1,181 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  typescript:
+    name: TypeScript bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Package
+        run: |
+          mkdir -p stage/corral-ts
+          cp -R dist integrations package.json stage/corral-ts/
+          tar -czf corral-ts.tar.gz -C stage corral-ts
+          (cd stage && zip -qr ../corral-ts.zip corral-ts)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corral-ts
+          path: |
+            corral-ts.tar.gz
+            corral-ts.zip
+
+  go:
+    name: Go (${{ matrix.suffix }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: arm64, suffix: darwin-arm64 }
+          - { goos: darwin, goarch: amd64, suffix: darwin-x86_64 }
+          - { goos: linux, goarch: amd64, suffix: linux-x86_64 }
+          - { goos: linux, goarch: arm64, suffix: linux-aarch64 }
+          - { goos: windows, goarch: amd64, suffix: windows-x86_64 }
+          - { goos: windows, goarch: arm64, suffix: windows-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: Golang
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p stage
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            go build -trimpath -ldflags="-s -w" -o stage/corral.exe ./cmd/corral
+          else
+            go build -trimpath -ldflags="-s -w" -o stage/corral ./cmd/corral
+          fi
+      - name: Package (tar.gz)
+        if: matrix.goos != 'windows'
+        shell: bash
+        run: tar -czf corral-go-${{ matrix.suffix }}.tar.gz -C stage corral
+      - name: Package (zip)
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: (cd stage && zip -qr ../corral-go-${{ matrix.suffix }}.zip corral.exe)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corral-go-${{ matrix.suffix }}
+          path: corral-go-${{ matrix.suffix }}.*
+
+  rust:
+    name: Rust (${{ matrix.suffix }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, suffix: darwin-arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, suffix: darwin-x86_64 }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, suffix: linux-x86_64 }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, suffix: linux-aarch64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, suffix: windows-x86_64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: Rust
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Build
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }}
+          mkdir -p stage
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            cp "target/${{ matrix.target }}/release/corral.exe" stage/
+          else
+            cp "target/${{ matrix.target }}/release/corral" stage/
+          fi
+      - name: Package (tar.gz)
+        if: matrix.target != 'x86_64-pc-windows-msvc'
+        shell: bash
+        run: tar -czf corral-rust-${{ matrix.suffix }}.tar.gz -C stage corral
+      - name: Package (zip)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: Compress-Archive -Path stage/corral.exe -DestinationPath corral-rust-${{ matrix.suffix }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corral-rust-${{ matrix.suffix }}
+          path: corral-rust-${{ matrix.suffix }}.*
+
+  publish:
+    name: Publish release
+    needs: [typescript, go, rust]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - id: version
+        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: corral v${{ steps.version.outputs.version }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Downloads
+
+            Rust and Go are standalone binaries (no toolchain needed):
+
+            | Build | macOS | Linux | Windows |
+            | ----- | ----- | ----- | ------- |
+            | Rust | `corral-rust-darwin-arm64.tar.gz`, `corral-rust-darwin-x86_64.tar.gz` | `corral-rust-linux-x86_64.tar.gz`, `corral-rust-linux-aarch64.tar.gz` | `corral-rust-windows-x86_64.zip` |
+            | Go | `corral-go-darwin-arm64.tar.gz`, `corral-go-darwin-x86_64.tar.gz` | `corral-go-linux-x86_64.tar.gz`, `corral-go-linux-aarch64.tar.gz` | `corral-go-windows-x86_64.zip`, `corral-go-windows-arm64.zip` |
+
+            TypeScript / Bun: `corral-ts.tar.gz` or `corral-ts.zip` — needs
+            [Bun](https://bun.sh); runs on macOS, Linux and Windows.
+
+            Extract the archive, put the `corral` binary (`corral.exe` on Windows)
+            on your `PATH`, then:
+
+            ```sh
+            corral setup
+            corral restart
+            ```
+
+            TypeScript bundle — extract, then:
+
+            ```sh
+            bun corral-ts/dist/index.js setup
+            bun corral-ts/dist/index.js restart
+            ```
+          files: assets/**

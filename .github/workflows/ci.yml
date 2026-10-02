@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main, Golang, Rust]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typescript:
+    name: TypeScript (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run build
+      - run: bun dist/index.js version
+      - name: smoke test daemon
+        shell: bash
+        run: |
+          bun dist/index.js daemon --port 4599 &
+          PID=$!
+          sleep 1
+          curl -fsS http://127.0.0.1:4599/health
+          kill $PID
+
+  go:
+    name: Go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: Golang
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go build -o corral-bin ./cmd/corral
+      - name: smoke test daemon
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./corral-bin daemon --port 4599 &
+          PID=$!
+          sleep 1
+          curl -fsS http://127.0.0.1:4599/health
+          kill $PID
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: Rust
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: cargo test
+      - name: smoke test daemon
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./target/release/corral daemon --port 4599 &
+          PID=$!
+          sleep 1
+          curl -fsS http://127.0.0.1:4599/health
+          kill $PID

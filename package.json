@@ -1,0 +1,30 @@
+{
+  "name": "corral",
+  "version": "0.2.0",
+  "description": "Restrict OpenCode agent file access via firewall rules",
+  "type": "module",
+  "bin": {
+    "corral": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build src/index.ts --outdir dist --target bun --minify && cp src/server/dashboard.html dist/dashboard.html",
+    "start": "bun dist/index.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "files": [
+    "dist",
+    "integrations",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.1"
+  },
+  "license": "MIT"
+}
