@@ -10,6 +10,7 @@ firewall that can deny file, command and web access — all from a local dashboa
 [![Rust](https://img.shields.io/badge/Rust-prebuilt-dea584?style=for-the-badge&logo=rust&logoColor=white)](#rust)
 [![Go](https://img.shields.io/badge/Go-static-00ADD8?style=for-the-badge&logo=go&logoColor=white)](#go)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Bun-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](#typescript--bun)
+[![Downloads](https://img.shields.io/github/downloads/alok-mishra143/Corral/total?style=for-the-badge&label=downloads&color=2ea043)](https://github.com/alok-mishra143/Corral/releases)
 [![License](https://img.shields.io/badge/License-MIT-2ea043?style=for-the-badge)](#license)
 
 </div>

@@ -1,0 +1,43 @@
+name: downloads
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: downloads
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Snapshot download total
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p stats
+          [ -f stats/downloads.csv ] || printf 'date,total\n' > stats/downloads.csv
+          total="$(sh scripts/installs.sh --total)"
+          today="$(date -u +%F)"
+          grep -v "^${today}," stats/downloads.csv > stats/downloads.csv.tmp || true
+          mv stats/downloads.csv.tmp stats/downloads.csv
+          printf '%s,%s\n' "$today" "$total" >> stats/downloads.csv
+          printf 'snapshot %s -> %s\n' "$today" "$total"
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stats/downloads.csv
+          if git diff --cached --quiet; then
+            echo "no change"
+            exit 0
+          fi
+          git commit -m "chore: downloads snapshot $(date -u +%F)"
+          git push

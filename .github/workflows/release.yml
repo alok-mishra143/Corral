@@ -3,6 +3,8 @@ name: release
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'stats/**'
   workflow_dispatch:
 
 permissions:
