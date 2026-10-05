@@ -23,6 +23,12 @@ they differ only in speed, size and memory. You are on `main` (the TypeScript
 build); the Go and Rust sources live on the `Golang` and `Rust` branches, but
 the installer fetches the right one for you.
 
+
+
+https://github.com/user-attachments/assets/eebef1fd-7319-42bf-8645-7e3a2a70e096
+
+
+
 ## Contents
 
 - [Which one should I install?](#which-one-should-i-install)
